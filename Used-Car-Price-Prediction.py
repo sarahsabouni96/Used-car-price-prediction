@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 #%% =====================================
 # LOAD DATA
 # ========================================
-df = pd.read_csv(r"C:\Users\Lenovo\Desktop\Pytroch_course\secod_project\archive\car_sales_data.csv")
+df = pd.read_csv(r"car_sales_data.csv")
 
 df.head()
 print(df)
@@ -213,4 +213,5 @@ plt.xlabel("Predicted Prices")
 plt.ylabel("Residuals (Actual - Predicted)")
 plt.title("Residual Plot for PyTorch Linear Regression")
 plt.show()
+
 
