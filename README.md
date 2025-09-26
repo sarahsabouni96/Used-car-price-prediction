@@ -55,12 +55,3 @@ Link: [Kaggle – Car Sales Dataset](https://www.kaggle.com/datasets/gagandeep16
 | Scikit-Learn  | ~0.77    |
 
 
----
-
-## 🚀 How to Run
-
-### 1. Clone the Repository
-```bash
-git clone https://github.com/yourusername/car-price-prediction.git
-cd car-price-prediction
-
