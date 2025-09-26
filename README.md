@@ -1,4 +1,4 @@
-# Used-car-price-prediction
+# Used-Car-Price-Prediction
 A machine learning model that predicts the price of used cars based on features like age, mileage, brand, and condition to help buyers and sellers make informed decisions.
 # Car Price Prediction with Linear Regression (PyTorch & Scikit-Learn)
 
