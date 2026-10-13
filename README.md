@@ -51,7 +51,7 @@ Link: [Kaggle – Car Sales Dataset](https://www.kaggle.com/datasets/gagandeep16
 
 | Model         | R² Score |
 |---------------|----------|
-| PyTorch       | ~0.77    |
+| PyTorch       | ~0.76    |
 | Scikit-Learn  | ~0.77    |
 
 
