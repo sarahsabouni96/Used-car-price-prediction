@@ -1,217 +1,466 @@
+
 # %% =====================================
 # IMPORTS
 # ========================================
+
 import numpy as np
-import torch
 import pandas as pd
 import seaborn as sns
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
+import torch
 
-#%% =====================================
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import (
+    OneHotEncoder,
+    StandardScaler,
+    FunctionTransformer
+)
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+
+
+# %% =====================================
 # LOAD DATA
 # ========================================
-df = pd.read_csv(r"car_sales_data.csv")
 
-df.head()
-print(df)
+df = pd.read_csv("car_sales_data.csv")
+
+print(df.head())
+print(df.shape)
+
 
 # %% =====================================
 # DATA CHECK & CLEANING
 # ========================================
+
 df.info()
-df.describe()
-df.isnull().sum()
-df.duplicated().sum()
 
-#%% check duplicates
-df.duplicated().sum()
+print("\nSummary statistics:")
+print(df.describe())
 
-# Drop duplicates
-df = df.drop_duplicates()
+print("\nMissing values:")
+print(df.isnull().sum())
+
+print("\nNumber of duplicate rows:")
+print(df.duplicated().sum())
+
+# Remove duplicate rows
+df = df.drop_duplicates().copy()
+
+print("\nShape after removing duplicates:")
 print(df.shape)
 
+
 # %% =====================================
-# OUTLIER CHECK (IQR method + boxplots)
+# OUTLIER CHECK
 # ========================================
 
-numeric_cols = ['Engine size', 'Year of manufacture', 'Mileage', 'Price']
+numeric_cols = [
+    "Engine size",
+    "Year of manufacture",
+    "Mileage",
+    "Price"
+]
 
 for col in numeric_cols:
-    plt.figure(figsize=(6,4))
+    plt.figure(figsize=(6, 4))
     sns.boxplot(x=df[col])
-    plt.title(f'Boxplot of {col}')
+    plt.title(f"Boxplot of {col}")
     plt.show()
 
-numeric_cols = ['Engine size', 'Mileage', 'Price']
 
-for col in numeric_cols:
-    Q1 = df[col].quantile(0.25)   # 25th percentile
-    Q3 = df[col].quantile(0.75)   # 75th percentile
-    IQR = Q3 - Q1                 # Interquartile range
+# Count potential outliers using the IQR method
+for col in ["Engine size", "Mileage", "Price"]:
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
 
     lower_bound = Q1 - 1.5 * IQR
     upper_bound = Q3 + 1.5 * IQR
 
-    outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
-    print(f"{col}: {len(outliers)} outliers")
+    outliers = df[
+        (df[col] < lower_bound) |
+        (df[col] > upper_bound)
+    ]
+
+    print(f"{col}: {len(outliers)} potential outliers")
+
 
 # %% =====================================
 # EXPLORATORY SCATTERPLOTS
 # ========================================
 
-
-sns.scatterplot(x=df['Mileage'], y=df['Price'])
+sns.scatterplot(data=df, x="Mileage", y="Price")
 plt.title("Mileage vs Price")
 plt.show()
 
-sns.scatterplot(x=df['Engine size'], y=df['Price'])
+sns.scatterplot(data=df, x="Engine size", y="Price")
 plt.title("Engine size vs Price")
 plt.show()
 
 
-
 # %% =====================================
-# FEATURE ENGINEERING
+# SPLIT THE DATA
 # ========================================
 
-# One-hot encode 'Fuel type'
-df = df.copy()
+feature_cols = [
+    "Engine size",
+    "Year of manufacture",
+    "Mileage",
+    "Manufacturer",
+    "Model",
+    "Fuel type"
+]
 
-# One-hot encode Fuel type
-df = pd.get_dummies(df, columns=['Fuel type'], drop_first=False)
+X = df[feature_cols].copy()
+y = df["Price"].copy()
 
-# Convert any boolean dummy columns to integers (0/1)
-bool_cols = df.select_dtypes(include='bool').columns
-df[bool_cols] = df[bool_cols].astype(int)
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.30,
+    random_state=42
+)
 
-# Target encoding for Manufacturer & Model
-df['Manufacturer_encoded'] = df.groupby('Manufacturer')['Price'].transform('mean')
-df['Model_encoded'] = df.groupby('Model')['Price'].transform('mean')
+print("\nTraining features:", X_train.shape)
+print("Testing features:", X_test.shape)
+print("Training targets:", y_train.shape)
+print("Testing targets:", y_test.shape)
 
-# Define numeric features including the one-hot Fuel type columns
-fuel_cols = ['Fuel type_Diesel', 'Fuel type_Hybrid', 'Fuel type_Petrol']
-numeric_features = ['Engine size', 'Year of manufacture', 'Mileage',
-                    'Manufacturer_encoded', 'Model_encoded'] + fuel_cols
-#%% PREPARE FEATURES AND TARGET
-# Log transforms
-df['Engine_log'] = np.log(df['Engine size'] + 1)
-df['Mileage_log'] = np.log(df['Mileage'] + 1)
 
-# Features & target
-X_np = df[['Engine_log', 'Mileage_log', 'Year of manufacture',
-           'Manufacturer_encoded', 'Model_encoded']].values.astype(np.float32)
-y_np = df['Price'].values.astype(np.float32).reshape(-1, 1)
+# %% =====================================
+# PREPROCESSING
+# ========================================
 
-# Standardize features
-scaler_X = StandardScaler()
-X_scaled = scaler_X.fit_transform(X_np)
-X = torch.from_numpy(X_scaled.astype(np.float32))
+# Numerical features that need a log transformation
+log_features = ["Engine size", "Mileage"]
+
+# Numerical feature that only needs scaling
+year_features = ["Year of manufacture"]
+
+# Categorical features that need encoding
+categorical_features = [
+    "Manufacturer",
+    "Model",
+    "Fuel type"
+]
+
+
+# Log transformation followed by scaling
+log_pipeline = Pipeline([
+    ("imputer", SimpleImputer(strategy="median")),
+    ("log", FunctionTransformer(
+        np.log1p,
+        feature_names_out="one-to-one"
+    )),
+    ("scaler", StandardScaler())
+])
+
+
+# Scale the year of manufacture
+year_pipeline = Pipeline([
+    ("imputer", SimpleImputer(strategy="median")),
+    ("scaler", StandardScaler())
+])
+
+
+# Convert categorical values into numerical columns
+categorical_pipeline = Pipeline([
+    ("imputer", SimpleImputer(strategy="most_frequent")),
+    ("onehot", OneHotEncoder(
+        handle_unknown="ignore",
+        sparse_output=False
+    ))
+])
+
+
+# Combine all preprocessing steps
+preprocessor = ColumnTransformer([
+    ("log_features", log_pipeline, log_features),
+    ("year_features", year_pipeline, year_features),
+    ("categorical_features", categorical_pipeline,
+     categorical_features)
+])
+
+
+# Learn preprocessing rules from training data only
+X_train_processed = preprocessor.fit_transform(X_train)
+
+# Apply the learned rules to test data
+X_test_processed = preprocessor.transform(X_test)
+
+
+# Convert processed features into NumPy arrays
+X_train_np = np.asarray(
+    X_train_processed, dtype=np.float32
+)
+
+X_test_np = np.asarray(
+    X_test_processed, dtype=np.float32
+)
+
+# Prepare target values
+y_train_np = y_train.to_numpy(
+    dtype=np.float32
+).reshape(-1, 1)
+
+y_test_np = y_test.to_numpy(
+    dtype=np.float32
+).reshape(-1, 1)
+
+
+print("\nProcessed training features:", X_train_np.shape)
+print("Processed testing features:", X_test_np.shape)
+
 
 # %% =====================================
 # PYTORCH LINEAR REGRESSION
 # ========================================
-y_mean = y_np.mean()
-y_std = y_np.std()
-y_scaled = (y_np - y_mean) / y_std
-y_true = torch.from_numpy(y_scaled.astype(np.float32))
 
-print("X shape:", X.shape, "y_true shape:", y_true.shape)
-print("Features used:", numeric_features)
+# Convert NumPy arrays into PyTorch tensors
+X_train_torch = torch.from_numpy(X_train_np)
+X_test_torch = torch.from_numpy(X_test_np)
+
+# Standardize the target using training prices only
+y_mean = y_train_np.mean()
+y_std = y_train_np.std()
+
+if y_std == 0:
+    raise ValueError("All training prices are identical.")
+
+y_train_scaled = (y_train_np - y_mean) / y_std
+
+y_train_torch = torch.from_numpy(
+    y_train_scaled.astype(np.float32)
+)
 
 
-# Standardize features
-scaler_X = StandardScaler()
-X_scaled = scaler_X.fit_transform(X_np)
-X = torch.from_numpy(X_scaled.astype(np.float32))
+# Initialize model parameters
+torch.manual_seed(42)
+
+num_features = X_train_torch.shape[1]
+
+w = torch.zeros(
+    num_features, 1, requires_grad=True
+)
+
+b = torch.zeros(1, requires_grad=True)
 
 
-#%% TRAINING LOOP
-num_features = X.shape[1]
-w = torch.rand(num_features, 1, requires_grad=True)
-b = torch.rand(1, requires_grad=True)
-
+# Training settings
 num_epochs = 1000
 learning_rate = 0.01
 
+
+# %% =====================================
+# TRAINING LOOP
+# ========================================
+
 for epoch in range(num_epochs):
-    y_pred = X @ w + b
-    loss_tensor = torch.mean((y_pred - y_true) ** 2)
-    loss_tensor.backward()
-    
+
+    # Predict training prices
+    y_pred = X_train_torch @ w + b
+
+    # Calculate mean squared error
+    loss = torch.mean(
+        (y_pred - y_train_torch) ** 2
+    )
+
+    # Calculate gradients
+    loss.backward()
+
+    # Update weights and bias
     with torch.no_grad():
         w -= learning_rate * w.grad
         b -= learning_rate * b.grad
+
         w.grad.zero_()
         b.grad.zero_()
-    
+
     if epoch % 100 == 0:
-        print(f'Epoch {epoch}, Loss: {loss_tensor.item()}')
+        print(
+            f"Epoch {epoch}, Loss: {loss.item():.4f}"
+        )
 
-# Predictions (rescale back to original prices)
+
+# %% =====================================
+# PYTORCH PREDICTIONS
+# ========================================
+
 with torch.no_grad():
-    y_pred_scaled = X @ w + b
-    y_pred_original = y_pred_scaled * y_std + y_mean  # rescale to original Prices
 
-print('First 5 predicted Prices:', y_pred_original[:5])
-print('First 5 actual Prices:', y_np[:5])
+    # Predict on unseen test data
+    y_test_pred_scaled = X_test_torch @ w + b
 
-#%% CHECK RESULTS AND PLOT
-print("Weights:", w.detach().numpy().reshape(-1))
-print("Bias:", b.item())
+    # Convert predictions back to original price scale
+    y_test_pred_torch = (
+        y_test_pred_scaled.numpy() * y_std + y_mean
+    ).ravel()
 
-# Visualize predictions vs actual for 'Engine size'
-plt.scatter(df['Engine size'], y_np, label='Actual')
-plt.scatter(df['Engine size'], y_pred_original.numpy(), label='Predicted', color='red', alpha=0.5)
-plt.xlabel('Engine size')
-plt.ylabel('Price')
-plt.legend()
-plt.show()
+
+print("\nFirst five PyTorch predictions:")
+print(y_test_pred_torch[:5])
+
+print("\nFirst five actual prices:")
+print(y_test_np[:5].ravel())
+
+
+# %% =====================================
+# PYTORCH EVALUATION
+# ========================================
+
+r2_torch = r2_score(
+    y_test_np.ravel(),
+    y_test_pred_torch
+)
+
+mae_torch = mean_absolute_error(
+    y_test_np.ravel(),
+    y_test_pred_torch
+)
+
+rmse_torch = np.sqrt(
+    mean_squared_error(
+        y_test_np.ravel(),
+        y_test_pred_torch
+    )
+)
+
+print("\nPyTorch Test Results")
+print("R²:", round(r2_torch, 4))
+print("MAE:", round(mae_torch, 2))
+print("RMSE:", round(rmse_torch, 2))
+
 
 # %% =====================================
 # SCIKIT-LEARN LINEAR REGRESSION
 # ========================================
-reg = LinearRegression().fit(X_np, y_np)  # y_np shape (n_samples, 1)
-print("Coefficients (slopes):", reg.coef_.flatten())
-print("Intercept:", reg.intercept_)
 
-#  compare predictions
-y_sklearn_pred = reg.predict(X_np)
-plt.scatter(df['Engine size'], y_np, label='Actual')
-plt.scatter(df['Engine size'], y_sklearn_pred, label='Sklearn Predicted', color='green', alpha=0.5)
-plt.xlabel('Engine size')
-plt.ylabel('Prices')
+reg = LinearRegression()
+
+# Train on the same processed training data
+reg.fit(X_train_np, y_train_np.ravel())
+
+# Predict on the test data
+y_test_pred_sklearn = reg.predict(X_test_np)
+
+
+print("\nScikit-learn coefficients:")
+print(reg.coef_)
+
+print("\nScikit-learn intercept:")
+print(reg.intercept_)
+
+
+# %% =====================================
+# SCIKIT-LEARN EVALUATION
+# ========================================
+
+r2_sklearn = r2_score(
+    y_test_np.ravel(),
+    y_test_pred_sklearn
+)
+
+mae_sklearn = mean_absolute_error(
+    y_test_np.ravel(),
+    y_test_pred_sklearn
+)
+
+rmse_sklearn = np.sqrt(
+    mean_squared_error(
+        y_test_np.ravel(),
+        y_test_pred_sklearn
+    )
+)
+
+print("\nScikit-learn Test Results")
+print("R²:", round(r2_sklearn, 4))
+print("MAE:", round(mae_sklearn, 2))
+print("RMSE:", round(rmse_sklearn, 2))
+
+
+# %% =====================================
+# COMPARE BOTH MODELS
+# ========================================
+
+results = pd.DataFrame({
+    "Model": ["PyTorch", "Scikit-learn"],
+    "R²": [r2_torch, r2_sklearn],
+    "MAE": [mae_torch, mae_sklearn],
+    "RMSE": [rmse_torch, rmse_sklearn]
+})
+
+print("\nModel comparison:")
+print(results)
+
+
+# %% =====================================
+# ACTUAL VS PREDICTED PRICES
+# ========================================
+
+plt.figure(figsize=(8, 6))
+
+plt.scatter(
+    y_test_np.ravel(),
+    y_test_pred_torch,
+    alpha=0.6,
+    label="PyTorch"
+)
+
+plt.scatter(
+    y_test_np.ravel(),
+    y_test_pred_sklearn,
+    alpha=0.6,
+    label="Scikit-learn"
+)
+
+min_price = min(
+    y_test_np.min(),
+    y_test_pred_torch.min(),
+    y_test_pred_sklearn.min()
+)
+
+max_price = max(
+    y_test_np.max(),
+    y_test_pred_torch.max(),
+    y_test_pred_sklearn.max()
+)
+
+plt.plot(
+    [min_price, max_price],
+    [min_price, max_price],
+    "r--",
+    label="Perfect predictions"
+)
+
+plt.xlabel("Actual Prices")
+plt.ylabel("Predicted Prices")
+plt.title("Actual vs Predicted Car Prices")
 plt.legend()
 plt.show()
 
 
-#%% PLOT ACTUAL VS PREDICTED CHARGES (ALL FEATURES)
-plt.figure(figsize=(8,6))
-plt.scatter(y_np, y_pred_original.numpy(), alpha=0.6)
-plt.plot([y_np.min(), y_np.max()], [y_np.min(), y_np.max()], 'r--')  # perfect prediction line
-plt.xlabel("Actual Prices")
-plt.ylabel("Predicted Prices")
-plt.title("PyTorch Linear Regression: Actual vs Predicted Prices")
-plt.show()
-
 # %% =====================================
-# EVALUATION (PyTorch)
+# RESIDUAL PLOT: PYTORCH
 # ========================================
-from sklearn.metrics import r2_score
-r2 = r2_score(y_np, y_pred_original.numpy())
-print("R² score (PyTorch model):", r2)
 
+residuals = y_test_np.ravel() - y_test_pred_torch
 
-# RESIDUAL PLOT
-residuals = y_np - y_pred_original.numpy()  # actual - predicted
+plt.figure(figsize=(8, 6))
 
-plt.figure(figsize=(8,6))
-plt.scatter(y_pred_original.numpy(), residuals, alpha=0.6)
-plt.axhline(0, color='red', linestyle='--')  # reference line at 0
+plt.scatter(
+    y_test_pred_torch,
+    residuals,
+    alpha=0.6
+)
+
+plt.axhline(0, color="red", linestyle="--")
 plt.xlabel("Predicted Prices")
 plt.ylabel("Residuals (Actual - Predicted)")
-plt.title("Residual Plot for PyTorch Linear Regression")
+plt.title("PyTorch Residual Plot")
 plt.show()
 
 
